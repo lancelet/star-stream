@@ -1,0 +1,21 @@
+name:                star-stream
+version:             0.1.0.0
+-- synopsis:
+-- description:
+-- license:
+license-file:        LICENSE
+author:              Jonathan Merritt
+maintainer:          j.s.merritt@gmail.com
+-- copyright:
+-- category:
+build-type:          Simple
+extra-source-files:  ChangeLog.md
+cabal-version:       >=1.10
+
+executable star-stream
+  main-is:             Main.hs
+  -- other-modules:
+  -- other-extensions:
+  build-depends:       base >=4.11 && <4.12
+  hs-source-dirs:      app
+  default-language:    Haskell2010
