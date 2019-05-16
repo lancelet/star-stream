@@ -1,16 +1,21 @@
 name:                star-stream
 version:             0.1.0.0
--- synopsis:
--- description:
--- license:
+synopsis:            Starfield renderer
+description:         Please see the README on GitHub at <https://github.com/lancelet/space-workshop#readme>
+license:             Apache
 license-file:        LICENSE
 author:              Jonathan Merritt
 maintainer:          j.s.merritt@gmail.com
--- copyright:
--- category:
+copyright:           2019 Jonathan Merritt
+category:            Graphics
 build-type:          Simple
 extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
+
+library
+  exposed-modules:
+  build-depends:
+    streamly >=0.6
 
 executable star-stream
   main-is:             Main.hs
