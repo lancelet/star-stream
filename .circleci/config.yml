@@ -11,4 +11,3 @@ workflows:
       - haskell/build-with-cci-cache:
           name: GHC 8.6.5
           executor: haskell/ghc-8_6_5
-          context: haskell-ci
