@@ -2,6 +2,9 @@
 star-stream
 ===========
 
+.. image:: https://circleci.com/gh/lancelet/star-stream.svg?style=svg
+    :target: https://circleci.com/gh/lancelet/star-stream
+
 A starfield renderer.
 
 .. code-block:: bash
