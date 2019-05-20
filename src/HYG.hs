@@ -7,16 +7,20 @@ The HYG database is available on GitHub here:
 
 The functions in this file parse fields from the file 'hygdata_v3.csv'.
 -}
+{-# LANGUAGE OverloadedStrings #-}
 module HYG
   ( -- * Functions
     runParseStar
   ) where
 
+import           Control.Applicative  ((<|>))
 import           Data.Attoparsec.Text (Parser, char, count, parseOnly,
                                        skipWhile, takeWhile)
 import           Data.Text            (Text)
-import           Prelude              (Either, Int, String, pure, (*>), (/=),
-                                       (<$>), (<*>))
+import qualified Data.Text            as Text
+import           Prelude              (Either (Left, Right), Fractional, Int,
+                                       Maybe (Just, Nothing), pure, ($), (*),
+                                       (*>), (.), (/), (/=), (<$>), (<*>), (<>))
 
 import           Star                 (Star)
 import qualified Star                 as Star
@@ -24,23 +28,34 @@ import qualified Star                 as Star
 
 -- | Runs the star parser on a line of input.
 runParseStar
-  :: Parser a                -- ^ Parser for the star's numeric fields.
-  -> Text                    -- ^ Line of input to parse.
-  -> Either String (Star a)  -- ^ Parse outcome.
-runParseStar parseNum = parseOnly (parseStar parseNum)
+  :: Fractional a
+  => Parser a              -- ^ Parser for the star's numeric fields.
+  -> Text                  -- ^ Line of input to parse.
+  -> Either Text (Star a)  -- ^ Parse outcome.
+runParseStar parseNum txt =
+  case parseOnly (parseStar parseNum) txt of
+    Left err   -> Left $ Text.pack err <> " : " <> txt
+    Right star -> Right star
 
 
 -- | Parse a line containing a star.
 parseStar
-  :: Parser a          -- ^ Parser for the star's numeric fields.
+  :: Fractional a
+  => Parser a          -- ^ Parser for the star's numeric fields.
   -> Parser (Star a)   -- ^ Parser for the star.
 parseStar parseNum
   = Star.Star
-    <$> (Star.RightAscension <$> (dropFields 7 *> parseNum))
-    <*> (Star.Declination    <$> (dropFields 1 *> parseNum))
-    <*> (Star.Magnitude      <$> (dropFields 5 *> parseNum))
-    <*> (Star.SpectralType   <$> (dropFields 2 *> takeWhile ((/=) ',')))
-    <*> (Star.ColorIndex     <$> (dropFields 1 *> parseNum))
+    <$> (Star.RightAscension . hoursToDegrees <$> (dropFields 7 *> parseNum))
+    <*> (Star.Declination                     <$> (dropFields 1 *> parseNum))
+    <*> (Star.Magnitude                       <$> (dropFields 5 *> parseNum))
+    <*> (Star.SpectralType                    <$> (dropFields 2 *> takeWhile ((/=) ',')))
+    <*> (dropFields 1 *> (Just . Star.ColorIndex <$> parseNum
+                          <|> pure Nothing))
+
+
+-- | Converts a value expressed in hours (eg. RightAscension) to degrees.
+hoursToDegrees :: Fractional a => a -> a
+hoursToDegrees x = 360 * x / 24
 
 
 -- | Drops 'nFields' comma-delimited fields.

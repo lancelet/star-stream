@@ -23,10 +23,12 @@ library
   exposed-modules:
       Catalog
     , HYG
+    , Render
     , Star
   build-depends:
       base        >=4.11
     , attoparsec  >=0.13.2
+    , JuicyPixels >=3.3.3
     , text        >=1.2.3
 
 executable star-stream
