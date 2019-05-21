@@ -1,0 +1,3 @@
+packages:
+  gaia-fetch/gaia-fetch.cabal
+  star-render/star-render.cabal
