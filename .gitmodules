@@ -1,4 +1,4 @@
 [submodule "data/HYG-Database"]
-	path = data/HYG-Database
+	path = star-render/data/HYG-Database
 	url = https://github.com/astronexus/HYG-Database.git
 	branch = master
