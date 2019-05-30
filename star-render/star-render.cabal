@@ -22,6 +22,8 @@ library
   ghc-options:       -Wall -Wincomplete-uni-patterns -Wincomplete-record-updates -Wmissing-import-lists
   exposed-modules:
       Catalog
+    , Gaia.CSVParser
+    , Gaia.Types
     , HYG
     , Render
     , Star
