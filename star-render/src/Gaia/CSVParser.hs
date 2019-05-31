@@ -92,14 +92,14 @@ parseObservedSource = do
   bNObs <- word32 <* skipSeparator
   meanFluxBP <-
     if bNObs > 0
-    then Just <$> parseMeanFluxBP
-    else skipField *> pure Nothing
+    then parseMeanFluxBP
+    else skipField *> pure GT.NoBPBand
   skipNFields 3
   rNObs <- word32 <* skipSeparator
   meanFluxRP <-
     if rNObs > 0
-    then Just <$> parseMeanFluxRP
-    else skipField *> pure Nothing
+    then parseMeanFluxRP
+    else skipField *> pure GT.NoRPBand
   let photometry = GT.Photometry meanFluxG meanFluxBP meanFluxRP
 
   -- skip the remainder of the line
