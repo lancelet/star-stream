@@ -45,6 +45,7 @@ library
     , text               >=1.2.3
     , vector             >=0.12.0.3
     , vector-th-unbox    >=0.2.1.6
+    , zlib               >=0.6.2
 
 executable star-stream
   main-is:             Main.hs

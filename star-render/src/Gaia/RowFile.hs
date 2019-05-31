@@ -2,41 +2,64 @@
 Module      : Gaia.RowFile
 Description : Storing Gaia data in files with rows.
 -}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings  #-}
 module Gaia.RowFile
   ( -- * Types
     ParseError(ParseError)
     -- * Functions
   , readRowFile
-  , writeRowFile 
+  , readRowGZFile
+  , writeRowFile
+  , writeRowGZFile
   ) where
 
-import Control.Exception.Safe (Exception, MonadThrow, throw)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import           Data.Binary.Get     (Get)
-import           Data.Binary.Get     as Get (getByteString, getDoublele,
-                                             getWord16le, getWord64le, getWord8,
-                                             runGetIncremental, pushChunk, pushEndOfInput,
-                                             Decoder(Fail, Partial, Done))
-import           Data.Binary.Put     (Put)
-import           Data.Binary.Put     as Put (putByteString, putDoublele,
-                                             putWord16le, putWord64le, putWord8, runPut)
-import           Data.Bits           (bit, testBit, (.|.))
-import qualified Data.ByteString     as BS
-import qualified Data.ByteString.Lazy as LBS
-import           Data.Text           (Text)
-import qualified Data.Text as Text
-import           Data.Vector.Unboxed (Vector)
-import qualified Data.Vector.Unboxed as U
-import           Data.Word           (Word16, Word8)
+import qualified Codec.Compression.GZip as GZip
+import           Control.Exception.Safe (Exception, MonadThrow, throw)
+import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Data.Binary.Get        (Get)
+import           Data.Binary.Get        as Get (Decoder (Done, Fail, Partial),
+                                                getByteString, getDoublele,
+                                                getWord16le, getWord64le,
+                                                getWord8, pushChunk,
+                                                pushEndOfInput,
+                                                runGetIncremental)
+import           Data.Binary.Put        (Put)
+import           Data.Binary.Put        as Put (putByteString, putDoublele,
+                                                putWord16le, putWord64le,
+                                                putWord8, runPut)
+import           Data.Bits              (bit, testBit, (.|.))
+import qualified Data.ByteString        as BS
+import qualified Data.ByteString.Lazy   as LBS
+import           Data.Text              (Text)
+import qualified Data.Text              as Text
+import           Data.Vector.Unboxed    (Vector)
+import qualified Data.Vector.Unboxed    as U
+import           Data.Word              (Word16, Word8)
 
-import qualified Gaia.Types          as GT
+import qualified Gaia.Types             as GT
 
 -- IO -------------------------------------------------------------------------
 
+
 newtype ParseError = ParseError Text deriving stock Show
 instance Exception ParseError
+
+
+readRowGZFile
+  :: (MonadIO m, MonadThrow m)
+  => FilePath
+  -> m (Vector GT.ObservedSource)
+readRowGZFile inFile = do
+  bsz <- liftIO $ LBS.readFile inFile
+  let
+    bs = LBS.toStrict . GZip.decompress $ bsz
+    result = pushEndOfInput $ runGetIncremental getRowFile `pushChunk` bs
+  case result of
+    Fail _ _ msg -> throw . ParseError . Text.pack $ msg
+    Partial _    -> throw . ParseError $ "readRowFile: Partial input!"
+    Done _ _ sv  -> pure sv
+
 
 readRowFile
   :: (MonadIO m, MonadThrow m)
@@ -51,6 +74,23 @@ readRowFile inFile = do
     Partial _    -> throw . ParseError $ "readRowFile: Partial input!"
     Done _ _ sv  -> pure sv
 
+
+writeRowGZFile
+  :: MonadIO m
+  => FilePath
+  -> Vector GT.ObservedSource
+  -> m ()
+writeRowGZFile outFile sv = do
+  let
+    lbs = runPut $ putRowFile sv
+    params = GZip.defaultCompressParams
+             { GZip.compressLevel       = GZip.bestCompression
+             , GZip.compressMemoryLevel = GZip.maxMemoryLevel
+             }
+    lbsz = GZip.compressWith params lbs
+  liftIO $ LBS.writeFile outFile lbsz
+
+
 writeRowFile
   :: MonadIO m
   => FilePath
@@ -59,6 +99,7 @@ writeRowFile
 writeRowFile outFile sv = do
   let lbs = runPut $ putRowFile sv
   liftIO $ LBS.writeFile outFile lbs
+
 
 -- Get Observations -----------------------------------------------------------
 
