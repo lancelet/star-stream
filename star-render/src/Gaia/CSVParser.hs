@@ -8,9 +8,11 @@ module Gaia.CSVParser
   ( -- * Types
     ParseError(ParseError)
     -- * Functions
+  , readCSVGZFile
   , readCSVFile
   ) where
 
+import qualified Codec.Compression.GZip           as GZip
 import           Control.Applicative              ((<|>))
 import           Control.Exception.Safe           (Exception, MonadThrow, throw)
 import           Control.Monad.IO.Class           (MonadIO, liftIO)
@@ -20,6 +22,7 @@ import           Data.Attoparsec.ByteString.Char8 (Parser, char, count, double,
                                                    skipWhile, string, (<?>))
 import qualified Data.Attoparsec.ByteString.Char8 as Atto (decimal)
 import qualified Data.ByteString.Char8            as BS8 (intercalate, readFile)
+import qualified Data.ByteString.Lazy             as LBS
 import           Data.Text                        (Text)
 import qualified Data.Text                        as Text (pack)
 import           Data.Word                        (Word32, Word64)
@@ -28,6 +31,36 @@ import qualified Gaia.Types                       as GT
 
 newtype ParseError = ParseError Text deriving stock Show
 instance Exception ParseError
+
+
+-- | Read a GZipped CSV file containing Gaia DR2 observed sources.
+--
+-- Errors encountered when parsing ('ParseError') will be thrown as exceptions.
+readCSVGZFile
+  :: (MonadIO m, MonadThrow m)
+  => FilePath
+  -> m [GT.ObservedSource]
+readCSVGZFile inFile = do
+  result <- readCSVGZFile' inFile
+  case result of
+    Left err      -> throw err
+    Right sources -> pure sources
+
+
+-- | Read a GZipped CSV file containing Gaia DR2 observed sources.
+--
+-- Parse errors are returned as a value in the result.
+readCSVGZFile'
+  :: MonadIO m
+  => FilePath
+  -> m (Either ParseError [GT.ObservedSource])
+readCSVGZFile' inFile = do
+  bsz <- liftIO $ LBS.readFile inFile
+  let bs = LBS.toStrict . GZip.decompress $ bsz
+  case parseOnly parseCSVFile bs of
+    Left err      -> pure . Left . ParseError . Text.pack $ err
+    Right sources -> pure . Right $ sources
+
 
 -- | Read a CSV file containing Gaia DR2 observed sources.
 --
