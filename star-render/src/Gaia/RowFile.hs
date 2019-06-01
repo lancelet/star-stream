@@ -1,22 +1,76 @@
 {-|
 Module      : Gaia.RowFile
 Description : Storing Gaia data in files with rows.
+
+Row files are a binary format for storing Gaia data for rendering. They consist
+of a header and body containing multiple records. Up to 65536 records can be
+stored in a single row file.
+
+The format is little-endian Intel, as follows:
+
++--------+---------------+-------------------------------+
+| Part   | Format        | Description                   |
++========+===============+===============================+
+| Header | 7-bytes ASCII | "GAIAROW" magic number        |
+|        +---------------+-------------------------------+
+|        | Word16        | Number of records in file     |
++--------+---------------+-------------------------------+
+| Body   | Word64        | Solution Id                   |
+|        +---------------+-------------------------------+
+|        | Word64        | Source Id                     |
+|        +---------------+-------------------------------+
+|        | Word64        | Random Index                  |
+|        +---------------+-------------------------------+
+|        | Double        | Right Ascension               |
+|        +---------------+-------------------------------+
+|        | Double        | Declination                   |
+|        +---------------+-------------------------------+
+|        | Byte          | Photometry Status (see below) |
+|        +---------------+-------------------------------+
+|        | Double        | Mean Flux G                   |
+|        +---------------+-------------------------------+
+|        | Double        | Mean Flux BP (or zero)        |
+|        +---------------+-------------------------------+
+|        | Double        | Mean Flux RP (or zero)        |
+|        +---------------+-------------------------------+
+|        | ...           | ...                           |
++--------+---------------+-------------------------------+
+
+Only one record in the body is shown above, but the pattern repeats for
+multiple records.
+
+The photometry status byte indicates whether the BP and RP flux channels
+are available. The bits of this byte are set as follows:
+
+  X X X X X X RP BP
+
+where 'X' indicates a bit that is not set, 'RP' indicates that the RP
+channel is avalable, and 'BP' indicates that the BP channel is available.
+
+The files can be read/written in full, in both plain and GZipped formats.
+Additionally, records can be appended to the end of one of these files
+provided that there is still space.
 -}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings  #-}
 module Gaia.RowFile
   ( -- * Types
     ParseError(ParseError)
+  , AppendResult(AppendedOK, FileFull)
     -- * Functions
+    -- ** Whole-file IO
   , readRowFile
   , readRowGZFile
   , writeRowFile
   , writeRowGZFile
+    -- ** Partial-file IO
+  , append
   ) where
 
 import qualified Codec.Compression.GZip as GZip
 import           Control.Exception.Safe (Exception, MonadThrow, throw)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Data.Binary            (decode, encode)
 import           Data.Binary.Get        (Get)
 import           Data.Binary.Get        as Get (Decoder (Done, Fail, Partial),
                                                 getByteString, getDoublele,
@@ -36,10 +90,46 @@ import qualified Data.Text              as Text
 import           Data.Vector.Unboxed    (Vector)
 import qualified Data.Vector.Unboxed    as U
 import           Data.Word              (Word16, Word8)
+import qualified System.IO              as SysIO
 
 import qualified Gaia.Types             as GT
 
--- IO -------------------------------------------------------------------------
+-- Partial-file IO ------------------------------------------------------------
+
+data AppendResult
+  = AppendedOK
+  | FileFull
+
+
+-- | Append a single source to a non-GZipped row file.
+--
+-- If the file is full (already has 0xFFFF entries) then this function will
+-- fail and return 'FileFull'. Otherwise the source will be appended.
+append
+  :: MonadIO m
+  => FilePath            -- ^ File to use.
+  -> GT.ObservedSource   -- ^ Record to append.
+  -> m AppendResult      -- ^ Indication of success / failure.
+append filePath source =
+  liftIO $ SysIO.withFile filePath SysIO.ReadWriteMode $ \handle -> do
+    -- first we check the file size
+    SysIO.hSeek handle SysIO.AbsoluteSeek 7  -- skip magic number
+    sizeBS <- LBS.hGet handle 2              -- read 2 bytes for size
+    let size = decode sizeBS :: Word16       -- decode the size
+    if size == 0xFFFF
+      then pure FileFull                     -- bail if the file is full
+      else do
+        -- otherwise, append the record at the end of the file
+        let sizeBS' = encode (size + 1)          -- the new size
+        SysIO.hSeek handle SysIO.AbsoluteSeek 7  -- go back to size byte
+        LBS.hPut handle sizeBS'                  -- write new size
+        let record = runPut $ putObservedSource source
+        SysIO.hSeek handle SysIO.SeekFromEnd 0  -- go to end
+        LBS.hPut handle record                  -- write new record
+        pure AppendedOK
+
+
+-- Whole-file IO --------------------------------------------------------------
 
 
 newtype ParseError = ParseError Text deriving stock Show
