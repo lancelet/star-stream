@@ -24,6 +24,7 @@ library
       Catalog
     , FluxWholeSky
     , Gaia.CSVParser
+    , Gaia.CSVtoRowFile
     , Gaia.RowFile
     , Gaia.Types
     , HYG
@@ -36,6 +37,7 @@ library
     , base16-bytestring  >=0.1.1.6
     , binary             >=0.8.6.0
     , bytestring         >=0.10.8.2
+    , containers         >=0.6.0.1
     , cryptonite         >=0.25
     , deepseq            >=1.4.4.0
     , directory          >=1.3.3.0
@@ -54,18 +56,8 @@ library
     , vector-th-unbox    >=0.2.1.6
     , zlib               >=0.6.2
 
-executable star-stream
-  main-is:             Main.hs
-  -- other-modules:
-  -- other-extensions:
-  build-depends:       base >=4.11 && <5
-  hs-source-dirs:      app
-  default-language:    Haskell2010
-
 executable test-flux-whole-sky
   main-is:             Main.hs
-  -- other-modules:
-  -- other-extensions:
   ghc-options:         -O2 -Wall -Wincomplete-uni-patterns -Wincomplete-record-updates -Wmissing-import-lists -threaded -rtsopts "-with-rtsopts=-N10"
   hs-source-dirs:      app/test-flux-whole-sky
   default-language:    Haskell2010
@@ -73,3 +65,13 @@ executable test-flux-whole-sky
       base >=4.11 && <5
     , star-render
            
+executable binarize
+  main-is:             Main.hs
+  ghc-options:         -O2 -Wall -Wincomplete-uni-patterns -Wincomplete-record-updates -Wmissing-import-lists -threaded -rtsopts "-with-rtsopts=-N10"
+  hs-source-dirs:      app/binarize
+  default-language:    Haskell2010
+  build-depends:
+      base >=4.11 && <5
+    , star-render
+    , directory            >=1.3.3.0
+    , optparse-applicative >=0.14.3.0

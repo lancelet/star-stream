@@ -21,6 +21,7 @@ sky can be rendered efficiently without streaming over all the stars
 in the entire dataset.
 -}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NegativeLiterals      #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TypeFamilies          #-}
 module FluxWholeSky where
@@ -31,14 +32,14 @@ import qualified Control.Concurrent.ParallelIO.Local as PIO
 import           Control.Monad                       (forM_)
 import           Control.Monad.IO.Class              (MonadIO, liftIO)
 import           Control.Monad.Primitive             (PrimMonad, PrimState)
-import           Data.List                           (isPrefixOf, sort)
+import           Data.List                           (isSuffixOf, sort)
 import           Data.List.Split                     (chunksOf)
 import qualified Data.Vector.Unboxed                 as U
 import           Data.Vector.Unboxed.Deriving        (derivingUnbox)
 import qualified GHC.Compact                         as Compact
 import qualified System.Directory                    as Directory
 
-import qualified Gaia.CSVParser                      as CSVParser
+import qualified Gaia.RowFile                        as RowFile
 import           Gaia.Types                          (ObservedSource)
 import qualified Gaia.Types                          as GaiaTypes
 import           Image                               (Image, MImage, PixelX,
@@ -177,9 +178,10 @@ stellarFlux source =
 pixelFlux :: ObservedSource -> (PixelX, PixelY) -> Flux
 pixelFlux source (Image.PixelX px, Image.PixelY py) =
   let
-    position = GaiaTypes.osPosition source
-    GaiaTypes.RA ra = GaiaTypes.posRA position
-    GaiaTypes.Dec dec = GaiaTypes.posDec position
+    galacticCoord = icrsToGalactic . GaiaTypes.osPosition $ source
+    GalacticRA ra = gcRA galacticCoord
+    GalacticDec dec = gcDec galacticCoord
+    
     x = 0.5 + fromIntegral px
     y = 0.5 + fromIntegral py
     Image.PixelWidth w' = imageWidth
@@ -216,9 +218,9 @@ pixelsForStar source =
 pixelRectForStar :: ObservedSource -> PixelRect
 pixelRectForStar source =
   let
-    position = GaiaTypes.osPosition source
-    GaiaTypes.RA ra = GaiaTypes.posRA position
-    GaiaTypes.Dec dec = GaiaTypes.posDec position
+    galacticCoord = icrsToGalactic . GaiaTypes.osPosition $ source
+    GalacticRA ra = gcRA galacticCoord
+    GalacticDec dec = gcDec galacticCoord
     Image.PixelWidth w' = imageWidth
     Image.PixelHeight h' = imageHeight
     w = fromIntegral w'
@@ -252,6 +254,53 @@ data PixelRect
     }
 
 
+newtype GalacticRA = GalacticRA Double
+newtype GalacticDec = GalacticDec Double
+data GalacticCoord
+  = GalacticCoord
+    { gcRA  :: {-# UNPACK #-} !GalacticRA
+    , gcDec :: {-# UNPACK #-} !GalacticDec
+    }
+
+-- Transformation to galactic coordinates.
+--
+-- Described in the Gaia documentation here:
+--  https://gea.esac.esa.int/archive/documentation/GDR2/Data_processing/chap_cu3ast/sec_cu3ast_intro/ssec_cu3ast_intro_tansforms.html#SSS1
+icrsToGalactic :: GaiaTypes.Position -> GalacticCoord
+icrsToGalactic pos =
+  let
+    -- right ascension and declination
+    GaiaTypes.RA ra'   = GaiaTypes.posRA pos
+    GaiaTypes.Dec dec' = GaiaTypes.posDec pos
+    ra = ra' * pi / 180
+    dec = dec' * pi / 180
+
+    -- XYZ in IRCS coordinates
+    x_ircs = cos ra * cos dec
+    y_ircs = sin ra * cos dec
+    z_ircs = sin dec
+
+    -- XYZ in Gaia Galactic Coordinates
+    x_gal = (-0.0548755604162154) * x_ircs
+            - 0.8734370902348850 * y_ircs
+            - 0.4838350155487132 * z_ircs
+    y_gal = 0.4941094278755837 * x_ircs
+            - 0.4448296299600112 * y_ircs
+            + 0.7469822444972189 * z_ircs
+    z_gal = (-0.8676661490190047) * x_ircs
+            - 0.1980763734312015 * y_ircs
+            + 0.4559837761750669 * z_ircs
+    -- some futzing here; double-check against original Gaia dataset
+    l' = 2*pi - (pi + atan2 y_gal x_gal)
+    b' = -1 * atan2 z_gal (sqrt (x_gal*x_gal + y_gal*y_gal))
+    l = l' * 180 / pi
+    b = b' * 180 / pi
+
+    pos' = GalacticCoord { gcRA = GalacticRA l, gcDec = GalacticDec b }
+  in
+    pos'
+
+
 -- | Compute whole-sky flux image by streaming over all the stars.
 fluxWholeSky
   :: (MonadIO m, PrimMonad m)
@@ -262,8 +311,8 @@ fluxWholeSky gaiaCSVdir = do
   -- find the Gaia files
   dirContents <- liftIO $ Directory.listDirectory gaiaCSVdir
   let
-    isGaiaFile filePath = "GaiaSource_" `isPrefixOf` filePath
-    gaiaFiles = {- take 1000
+    isGaiaFile filePath = ".row.gz" `isSuffixOf` filePath
+    gaiaFiles = {- take 10
               $ -} fmap (\f -> gaiaCSVdir <> "/" <> f)
               $ sort
               $ filter isGaiaFile dirContents
@@ -301,8 +350,7 @@ fluxWholeSky gaiaCSVdir = do
         contributeFile file = do
           withLogLock $ putStrLn $ "Processing: " <> file
 
-          obsList <- CSVParser.readCSVGZFile file
-          let observations = U.fromList obsList
+          observations <- RowFile.readRowGZFile file
           _ <- Compact.compact observations
           U.forM_ observations $ \source -> addStarFlux cImage source
 
@@ -311,7 +359,7 @@ fluxWholeSky gaiaCSVdir = do
 
   -- spawn multiple threads to handle chunks of the input files
   _ <- liftIO $ PIO.withPool 10 $ \pool ->
-    PIO.parallel_ pool (contributeFiles <$> (chunksOf 512 gaiaFiles))
+    PIO.parallel_ pool (contributeFiles <$> (chunksOf 20 gaiaFiles))
 
   -- freeze and return the mutable image
   liftIO $ Image.freeze image
@@ -319,11 +367,11 @@ fluxWholeSky gaiaCSVdir = do
 
 -- | Test drive the fluxWholeSky action.
 --
--- Reads data from "/Volumes/Gaia/gaia"
+-- Reads data from "/Volumes/Gaia/rowfiles"
 -- Writes to "test.hdr"
 testFluxWholeSky :: IO ()
 testFluxWholeSky = do
-  let inputDir = "/Volumes/Gaia/gaia"
+  let inputDir = "/Volumes/Gaia/rowfiles"
 
   image <- fluxWholeSky inputDir
 
