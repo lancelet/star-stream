@@ -17,7 +17,7 @@ A starfield renderer for the Gaia_ DR2 catalog.
 Results from the Gaia DR2 Star Catalog
 --------------------------------------
 
-The image below shows an equirectangular, equatorial-coordinate
+The image below shows an equirectangular, galactic-coordinate
 projection of all 1.69 billon sources in the Gaia_ DR2 catalog. This
 "integrated flux" image was created by reading each of the Gaia source
 catalog files (compressed CSVs) and adding the contribution of flux
@@ -37,7 +37,7 @@ The output from the flux integration process is a floating-point HDR
 image, which is tweaked (manually, for now) with a non-linear exposure
 in an image editor.
 
-.. image:: gaia-equirectangular-equatorial.jpg
+.. image:: gaia-equirectangular-galactic.jpg
    :scale: 15 %
 
 This is only an initial exploration. Improvements planned for

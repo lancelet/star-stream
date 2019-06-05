@@ -3,38 +3,38 @@ Module      : Gaia.RowFile
 Description : Storing Gaia data in files with rows.
 
 Row files are a binary format for storing Gaia data for rendering. They consist
-of a header and body containing multiple records. Up to 65536 records can be
-stored in a single row file.
+of a header and body containing multiple records. Up to 1048576 (0xFFFFF + 1)
+records can be stored in a single row file.
 
 The format is little-endian Intel, as follows:
 
-+--------+---------------+-------------------------------+
-| Part   | Format        | Description                   |
-+========+===============+===============================+
-| Header | 7-bytes ASCII | "GAIAROW" magic number        |
-|        +---------------+-------------------------------+
-|        | Word16        | Number of records in file     |
-+--------+---------------+-------------------------------+
-| Body   | Word64        | Solution Id                   |
-|        +---------------+-------------------------------+
-|        | Word64        | Source Id                     |
-|        +---------------+-------------------------------+
-|        | Word64        | Random Index                  |
-|        +---------------+-------------------------------+
-|        | Double        | Right Ascension               |
-|        +---------------+-------------------------------+
-|        | Double        | Declination                   |
-|        +---------------+-------------------------------+
-|        | Byte          | Photometry Status (see below) |
-|        +---------------+-------------------------------+
-|        | Double        | Mean Flux G                   |
-|        +---------------+-------------------------------+
-|        | Double        | Mean Flux BP (or zero)        |
-|        +---------------+-------------------------------+
-|        | Double        | Mean Flux RP (or zero)        |
-|        +---------------+-------------------------------+
-|        | ...           | ...                           |
-+--------+---------------+-------------------------------+
++--------+---------------+--------------------------------------------------+
+| Part   | Format        | Description                                      |
++========+===============+==================================================+
+| Header | 7-bytes ASCII | "GAIAROW" magic number                           |
+|        +---------------+--------------------------------------------------+
+|        | Word32        | Number of records in file minus 1 (max 1048575)  |
++--------+---------------+--------------------------------------------------+
+| Body   | Word64        | Solution Id                                      |
+|        +---------------+--------------------------------------------------+
+|        | Word64        | Source Id                                        |
+|        +---------------+--------------------------------------------------+
+|        | Word64        | Random Index                                     |
+|        +---------------+--------------------------------------------------+
+|        | Double        | Right Ascension                                  |
+|        +---------------+--------------------------------------------------+
+|        | Double        | Declination                                      |
+|        +---------------+--------------------------------------------------+
+|        | Byte          | Photometry Status (see below)                    |
+|        +---------------+--------------------------------------------------+
+|        | Double        | Mean Flux G                                      |
+|        +---------------+--------------------------------------------------+
+|        | Double        | Mean Flux BP (or zero)                           |
+|        +---------------+--------------------------------------------------+
+|        | Double        | Mean Flux RP (or zero)                           |
+|        +---------------+--------------------------------------------------+
+|        | ...           | ...                                              |
++--------+---------------+--------------------------------------------------+
 
 Only one record in the body is shown above, but the pattern repeats for
 multiple records.
@@ -56,31 +56,28 @@ provided that there is still space.
 module Gaia.RowFile
   ( -- * Types
     ParseError(ParseError)
-  , AppendResult(AppendedOK, FileFull)
     -- * Functions
+  , rowFileMaxEntries
     -- ** Whole-file IO
   , readRowFile
   , readRowGZFile
   , writeRowFile
   , writeRowGZFile
-    -- ** Partial-file IO
-  , append
   ) where
 
 import qualified Codec.Compression.GZip as GZip
 import           Control.Exception.Safe (Exception, MonadThrow, throw)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Data.Binary            (decode, encode)
 import           Data.Binary.Get        (Get)
 import           Data.Binary.Get        as Get (Decoder (Done, Fail, Partial),
                                                 getByteString, getDoublele,
-                                                getWord16le, getWord64le,
+                                                getWord32le, getWord64le,
                                                 getWord8, pushChunk,
                                                 pushEndOfInput,
                                                 runGetIncremental)
 import           Data.Binary.Put        (Put)
 import           Data.Binary.Put        as Put (putByteString, putDoublele,
-                                                putWord16le, putWord64le,
+                                                putWord32le, putWord64le,
                                                 putWord8, runPut)
 import           Data.Bits              (bit, testBit, (.|.))
 import qualified Data.ByteString        as BS
@@ -89,47 +86,17 @@ import           Data.Text              (Text)
 import qualified Data.Text              as Text
 import           Data.Vector.Unboxed    (Vector)
 import qualified Data.Vector.Unboxed    as U
-import           Data.Word              (Word16, Word8)
-import qualified System.IO              as SysIO
+import           Data.Word              (Word32, Word8)
 
 import qualified Gaia.Types             as GT
 
--- Partial-file IO ------------------------------------------------------------
-
-data AppendResult
-  = AppendedOK
-  | FileFull
-
-
--- | Append a single source to a non-GZipped row file.
---
--- If the file is full (already has 0xFFFF entries) then this function will
--- fail and return 'FileFull'. Otherwise the source will be appended.
-append
-  :: MonadIO m
-  => FilePath            -- ^ File to use.
-  -> GT.ObservedSource   -- ^ Record to append.
-  -> m AppendResult      -- ^ Indication of success / failure.
-append filePath source =
-  liftIO $ SysIO.withFile filePath SysIO.ReadWriteMode $ \handle -> do
-    -- first we check the file size
-    SysIO.hSeek handle SysIO.AbsoluteSeek 7  -- skip magic number
-    sizeBS <- LBS.hGet handle 2              -- read 2 bytes for size
-    let size = decode sizeBS :: Word16       -- decode the size
-    if size == 0xFFFF
-      then pure FileFull                     -- bail if the file is full
-      else do
-        -- otherwise, append the record at the end of the file
-        let sizeBS' = encode (size + 1)          -- the new size
-        SysIO.hSeek handle SysIO.AbsoluteSeek 7  -- go back to size byte
-        LBS.hPut handle sizeBS'                  -- write new size
-        let record = runPut $ putObservedSource source
-        SysIO.hSeek handle SysIO.SeekFromEnd 0  -- go to end
-        LBS.hPut handle record                  -- write new record
-        pure AppendedOK
-
 
 -- Whole-file IO --------------------------------------------------------------
+
+
+-- | Maximum number of entries in a row file.
+rowFileMaxEntries :: Word32
+rowFileMaxEntries = 0x000FFFFF + 1
 
 
 newtype ParseError = ParseError Text deriving stock Show
@@ -199,7 +166,7 @@ getRowFile = do
   if magic /= "GAIAROW"
   then fail $ "getRowFile was expecting GAIAROW as a file identifier"
   else do
-    len <- fromIntegral <$> getWord16le
+    len <- (((+) 1) . fromIntegral) <$> getWord32le
     U.replicateM len getObservedSource
 
 getObservedSource :: Get GT.ObservedSource
@@ -281,13 +248,13 @@ getMeanFluxRP status
 putRowFile :: Vector GT.ObservedSource -> Put
 putRowFile sv = do
   let len = U.length sv
-  if len > fromIntegral (maxBound :: Word16)
+  if len > fromIntegral rowFileMaxEntries
   then fail $ "putRowFile requires a vector with <= "
-           <> show (maxBound :: Word16)
+           <> show rowFileMaxEntries
            <> " elements"
   else do
     putByteString "GAIAROW"
-    putWord16le (fromIntegral len)
+    putWord32le (fromIntegral (len - 1))
     U.mapM_ putObservedSource sv
 
 putObservedSource :: GT.ObservedSource -> Put
