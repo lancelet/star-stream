@@ -16,4 +16,7 @@ This package contains an executable, called ``gaia-fetch``, which
 downloads this large archive, checking MD5 hashes and caching
 already-downloaded files.
 
+This is equivalent to
+``wget -nc -np -A '*.csv.gz' -r http://cdn.gea.esac.esa.int/Gaia/gdr2/gaia_source/csv/``.
+
 .. _Gaia: https://en.wikipedia.org/wiki/Gaia_(spacecraft)
