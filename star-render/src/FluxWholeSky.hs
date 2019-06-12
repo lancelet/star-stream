@@ -56,6 +56,25 @@ data Flux
   deriving Show
 
 
+data ImageWindow
+  = ImageWindow
+    { iwRA        :: {-# UNPACK #-} !Double  -- min RA
+    , iwDec       :: {-# UNPACK #-} !Double  -- min Dec
+    , iwRAWidth   :: {-# UNPACK #-} !Double  -- width of RA
+    , iwDecHeight :: {-# UNPACK #-} !Double  -- width of Dec
+    }
+
+
+imageWindow :: ImageWindow
+imageWindow
+  = ImageWindow
+    { iwRA        = 253.0
+    , iwDec       = -61.0
+    , iwRAWidth   = 266.0 - 253.0
+    , iwDecHeight = 61.0 - 51.0
+    }
+
+
 addFlux :: Flux -> Flux -> Flux
 addFlux a b
   = Flux
@@ -181,7 +200,7 @@ pixelFlux source (Image.PixelX px, Image.PixelY py) =
     galacticCoord = icrsToGalactic . GaiaTypes.osPosition $ source
     GalacticRA ra = gcRA galacticCoord
     GalacticDec dec = gcDec galacticCoord
-    
+
     x = 0.5 + fromIntegral px
     y = 0.5 + fromIntegral py
     Image.PixelWidth w' = imageWidth
@@ -189,8 +208,8 @@ pixelFlux source (Image.PixelX px, Image.PixelY py) =
     w = fromIntegral w'
     h = fromIntegral h'
 
-    starX = ra * w / 360
-    starY = (dec + 90) * h / 180
+    starX = (ra - iwRA imageWindow) * w / (iwRAWidth imageWindow)
+    starY = h - (dec - iwRA imageWindow) * h / (iwDecHeight imageWindow)
 
     dx = x - starX
     dy = y - starY
@@ -225,8 +244,8 @@ pixelRectForStar source =
     Image.PixelHeight h' = imageHeight
     w = fromIntegral w'
     h = fromIntegral h'
-    xpx = ra * w / 360
-    ypx = (dec + 90) * h / 180
+    xpx = (ra - iwRA imageWindow) * w / (iwRAWidth imageWindow)
+    ypx = h - (dec - iwRA imageWindow) * h / (iwDecHeight imageWindow)
     minx = floor $ xpx - pixelFilterRadius
     miny = floor $ ypx - pixelFilterRadius
     maxx = ceiling $ xpx + pixelFilterRadius
